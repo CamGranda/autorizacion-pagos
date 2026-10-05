@@ -1,0 +1,57 @@
+openapi: 3.0.3
+info:
+  title: API de autorización de pagos
+  version: 0.1.0
+  description: Recibe pagos de la app móvil. Un reintento con la misma clave de idempotencia nunca cobra dos veces.
+paths:
+  /api/v1/pagos:
+    post:
+      summary: Solicitar la autorización de un pago
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, maxLength: 80 }
+          description: Clave única por intención de pago, generada por la app. Se reutiliza en los reintentos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PagoSolicitud' }
+      responses:
+        '200':
+          description: Pago resuelto (aprobado o rechazado), o respuesta repetida de un reintento (cabecera Idempotent-Replayed).
+          content: { application/json: { schema: { $ref: '#/components/schemas/PagoRespuesta' } } }
+        '202':
+          description: El banco no respondió a tiempo. El pago queda EN_PROCESO y se confirma en segundo plano.
+          content: { application/json: { schema: { $ref: '#/components/schemas/PagoRespuesta' } } }
+        '409':
+          description: Otra solicitud con la misma clave se está procesando todavía.
+        '422':
+          description: La clave ya se usó con datos distintos.
+        '503':
+          description: Banco no disponible (circuit breaker abierto). No se reservó ningún monto. Reintentar más tarde.
+  /api/v1/pagos/{id}:
+    get:
+      summary: Consultar el estado de un pago
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200': { description: Estado actual, content: { application/json: { schema: { $ref: '#/components/schemas/PagoRespuesta' } } } }
+        '404': { description: No existe }
+components:
+  schemas:
+    PagoSolicitud:
+      type: object
+      required: [cuentaId, monto]
+      properties:
+        cuentaId: { type: integer, format: int64 }
+        monto: { type: number, minimum: 0.01, example: 50.00 }
+        moneda: { type: string, example: USD }
+        concepto: { type: string, maxLength: 100 }
+    PagoRespuesta:
+      type: object
+      properties:
+        pagoId: { type: integer, format: int64 }
+        estado: { type: string, enum: [APROBADO, RECHAZADO, EN_PROCESO] }
+        motivo: { type: string, example: LIMITE_DIARIO }

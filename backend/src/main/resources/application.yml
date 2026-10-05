@@ -1,0 +1,16 @@
+spring:
+  jpa:
+    hibernate.ddl-auto: validate   # el esquema lo controla db/init.sql
+    open-in-view: false
+management:
+  endpoints.web.exposure.include: health,info,prometheus
+banco:
+  url: ${BANCO_URL:http://localhost:9000}
+  token: ${BANCO_TOKEN:}
+  timeout-ms: ${BANCO_TIMEOUT_MS:3000}
+  consultas-max: ${BANCO_CONSULTAS_MAX:3}
+  cb-fallas: ${BANCO_CB_FALLAS:5}
+idempotencia:
+  ttl-horas: ${IDEMPOTENCIA_TTL_HORAS:24}
+conciliacion:
+  cron: ${CONCILIACION_CRON:0 */15 * * * *}

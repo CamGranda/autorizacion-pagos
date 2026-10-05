@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema de autorización de pagos</title>
+<style>
+:root{--bg:#f0f2f6;--ink:#161b2e;--mute:#5d6580;--line:#d3d8e6;--card:#fff;--ok:#23795a;--warn:#b9780f;--bad:#c23a30;--acc:#2f3fa8}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+header,main,footer{max-width:1100px;margin:0 auto;padding:0 20px}
+header{padding-top:28px}
+h1{font-size:clamp(1.5rem,3.2vw,2.2rem);line-height:1.15;margin:0 0 8px;letter-spacing:-.01em}
+h2{font-size:1.1rem;margin:22px 0 8px}
+.sub{color:var(--mute);max-width:68ch;margin:0 0 20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--card);border:1px solid var(--line);padding:12px 16px}
+.kpi b{display:block;font-size:1.7rem;line-height:1.15}.kpi span{color:var(--mute);font-size:.86rem}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.wrap{background:var(--card);border:1px solid var(--line);overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:680px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle;font-size:.9rem}
+th{font-weight:600;color:var(--mute);font-size:.82rem}tr:last-child td{border-bottom:0}
+.empty{padding:14px;color:var(--mute)}
+.tag{display:inline-block;padding:2px 8px;font-size:.8rem;font-weight:600;color:#fff}
+.APROBADO{background:var(--ok)}.RECHAZADO{background:var(--bad)}.EN_PROCESO{background:var(--warn)}
+button{font:inherit;font-size:.88rem;padding:7px 13px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+button.sec{background:#fff;color:var(--ink)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+form,.box{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;background:var(--card);border:1px solid var(--line);padding:12px;margin-bottom:10px}
+label{display:flex;flex-direction:column;gap:2px;font-size:.8rem;color:var(--mute)}
+label.in{flex-direction:row;align-items:center;gap:8px;color:var(--ink);font-size:.92rem}
+input,select{font:inherit;font-size:.92rem;padding:6px 8px;border:1px solid var(--line);background:#fff;color:var(--ink);min-width:0}
+td input[type=number]{width:90px}
+.cols{display:grid;grid-template-columns:1fr;gap:16px}@media(min-width:900px){.cols{grid-template-columns:1fr 1fr}}
+pre{background:#161b2e;color:#e6eaf8;padding:10px 12px;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;overflow:auto;margin:0}
+.http{padding:8px 12px;font-weight:600;background:var(--card);border:1px solid var(--line);border-bottom:0}
+.steps,.log{list-style:none;margin:0;padding:0;background:var(--card);border:1px solid var(--line)}
+.steps li{padding:8px 12px;border-bottom:1px solid var(--line);font-size:.9rem;display:flex;gap:8px}.steps li:last-child{border:0}
+.steps .bg{color:var(--mute)}.steps b{min-width:170px;font-weight:600}
+.log{max-height:320px;overflow:auto}.log li{padding:7px 12px;border-bottom:1px solid var(--line);font-size:.87rem}.log small{color:var(--mute);display:block}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.note{background:#fff;border:1px solid var(--line);padding:10px 12px;font-size:.88rem;color:var(--mute);margin-bottom:12px}
+footer{padding:12px 20px 40px;color:var(--mute);font-size:.86rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>Sistema de autorización de pagos</h1>
+  <p class="sub">Simula el recorrido de un pago de la app móvil: validación de la cuenta, límites, protección contra cobros dobles, llamada al banco, y las tareas de segundo plano (notificación y conciliación). Cada intento queda registrado.</p>
+  <div class="kpis" aria-live="polite">
+    <div class="kpi"><b id="k1">–</b><span id="k1s">Latencia de autorización (media)</span></div>
+    <div class="kpi"><b id="k2">0</b><span>Pagos duplicados (cobros dobles)</span></div>
+    <div class="kpi"><b id="k3">–</b><span>Tasa de errores técnicos</span></div>
+    <div class="kpi"><b id="k4">–</b><span>Tiempo medio de conciliación</span></div>
+  </div>
+  <div class="tabs" role="tablist">
+    <button id="t-pag" role="tab" onclick="tab('pag')">Enviar pago</button>
+    <button id="t-seg" role="tab" onclick="tab('seg')">Segundo plano y conciliación</button>
+    <button id="t-cue" role="tab" onclick="tab('cue')">Cuentas</button>
+    <button id="t-aud" role="tab" onclick="tab('aud')">Auditoría y datos</button>
+  </div>
+</header>
+<main>
+<section id="s-pag">
+  <div class="box">
+    <label>Cuenta<select id="cuenta"></select></label>
+    <label>Monto<input id="monto" type="number" min="0.01" step="any" value="50" style="width:110px"></label>
+    <label>Concepto<input id="concepto" value="Cuota mensual" maxlength="60"></label>
+    <label>Clave de idempotencia<input id="key" oninput="S.key=this.value;save()" style="width:170px"></label>
+    <button class="sec" onclick="S.key=genKey();$('key').value=S.key;save()">Nueva clave</button>
+  </div>
+  <div class="box">
+    <label>Comportamiento del banco (simulado)
+      <select id="modo" onchange="S.modo=this.value;save()">
+        <option value="APROBAR">Aprueba rápido</option>
+        <option value="RECHAZAR">Rechaza el pago</option>
+        <option value="TARDE">Cobra pero responde tarde (más de 3 s)</option>
+        <option value="CAIDO">No responde (caído)</option>
+      </select></label>
+    <label class="in"><input type="checkbox" id="idem" onchange="S.idem=this.checked;save()"> Protección de idempotencia activa</label>
+    <button onclick="enviar()">Enviar pago</button>
+  </div>
+  <div class="note">Para probar un reintento, pulsa <b>Enviar pago</b> otra vez con la misma clave: no se cobra de nuevo. Para un pago nuevo, pulsa <b>Nueva clave</b>. Si cambias el monto y mantienes la clave, el sistema lo rechaza. Apaga la protección para ver qué pasaría sin ella.</div>
+  <div id="resp" hidden>
+    <div class="cols">
+      <div><div class="http" id="httpl"></div><pre id="json"></pre></div>
+      <ul class="steps" id="steps"></ul>
+    </div>
+  </div>
+  <h2>Pagos registrados</h2>
+  <div class="wrap"><table><thead><tr><th>N.º</th><th>Cuenta</th><th>Monto</th><th>Estado</th><th>Motivo</th><th>Clave</th><th>Notificado</th><th>Conciliado</th></tr></thead><tbody id="pagos"></tbody></table></div>
+</section>
+
+<section id="s-seg" hidden>
+  <div class="note">Cuando el banco no responde, el cliente recibe «en proceso» y el monto queda reservado. Estas tareas corren después, sin que el cliente espere. Aquí las ejecutas tú con los botones.</div>
+  <div class="row">
+    <button onclick="procesar()">Procesar tareas pendientes</button>
+    <button onclick="conciliar()">Conciliar con el banco</button>
+  </div>
+  <h2>Cola de tareas</h2>
+  <ul class="log" id="cola"></ul>
+  <h2>Registro del banco (simulado)</h2>
+  <div class="wrap"><table style="min-width:420px"><thead><tr><th>Referencia</th><th>Monto</th><th>Estado en el banco</th></tr></thead><tbody id="banco"></tbody></table></div>
+  <h2>Informe de conciliación</h2>
+  <div class="wrap"><table><thead><tr><th>Pago</th><th>Monto</th><th>Aquí</th><th>Banco</th><th>Resultado</th></tr></thead><tbody id="conc"></tbody></table></div>
+</section>
+
+<section id="s-cue" hidden>
+  <h2>Nueva cuenta</h2>
+  <form onsubmit="addCuenta(event)">
+    <label>Titular<input name="titular" required maxlength="60"></label>
+    <label>Número de cuenta<input name="numero" required pattern="[0-9]{6,20}" title="Entre 6 y 20 dígitos"></label>
+    <label>Saldo<input name="saldo" type="number" min="0" step="any" value="300" style="width:100px"></label>
+    <label>Límite por pago<input name="limTx" type="number" min="0" step="any" value="100" style="width:100px"></label>
+    <label>Límite diario<input name="limDia" type="number" min="0" step="any" value="250" style="width:100px"></label>
+    <button>Agregar</button>
+  </form>
+  <div class="wrap"><table><thead><tr><th>Titular</th><th>Cuenta</th><th>Saldo</th><th>Reservado</th><th>Límite por pago</th><th>Límite diario</th><th>Activa</th><th></th></tr></thead><tbody id="cuentas"></tbody></table></div>
+</section>
+
+<section id="s-aud" hidden>
+  <h2>Métricas</h2>
+  <div class="kpis" id="mets"></div>
+  <div class="row">
+    <button class="sec" onclick="exportar()">Exportar copia (JSON)</button>
+    <button class="sec" onclick="$('imp').click()">Importar copia</button>
+    <input type="file" id="imp" accept=".json" hidden onchange="importar(this)">
+    <button class="sec" onclick="if(confirm('Se reemplazarán tus datos por los de ejemplo.')){S=seed();ctl();commit()}">Restaurar datos de ejemplo</button>
+    <button class="sec" onclick="if(confirm('Se borrará todo.')){S=vacio();S.key=genKey();ctl();commit()}">Empezar desde cero</button>
+  </div>
+  <h2>Auditoría de intentos</h2>
+  <ul class="log" id="aud"></ul>
+</section>
+</main>
+<footer>Las latencias son simuladas (no se espera tiempo real): el banco que responde tarda entre 0,25 y 0,5 s y el tiempo de espera máximo es de 3 s. Tus datos se guardan en este navegador y no se comparten con otros dispositivos; usa «Exportar copia» para llevarlos. Los números de cuenta se muestran enmascarados.</footer>
+
+<script>
+const KEY="pagos_v1",$=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money=n=>"$"+Number(n).toFixed(2),num=v=>{v=Number(v);return isFinite(v)?v:NaN};
+const ft=ms=>ms<60000?Math.round(ms/1000)+" s":ms<3600000?(ms/60000).toFixed(1)+" min":(ms/3600000).toFixed(1)+" h";
+const fe=t=>new Date(t).toLocaleString("es-EC"),mask=n=>"****"+String(n).slice(-4);
+function genKey(){return"pay-"+Math.random().toString(36).slice(2,10)}
+const vacio=()=>({cuentas:[],pagos:[],banco:[],cola:[],aud:[],lat:[],concil:[],im:{},reint:0,conf:0,modo:"APROBAR",idem:true,key:"",ultimo:null,seq:1});
+function seed(){const s=vacio();
+  s.cuentas=[{id:"c1",titular:"Ana Paredes",numero:"1000004821",saldo:500,reservado:0,limTx:200,limDia:400,activa:true},
+   {id:"c2",titular:"Luis Mora",numero:"1000007710",saldo:120,reservado:0,limTx:100,limDia:150,activa:true},
+   {id:"c3",titular:"Rosa Vera",numero:"1000000032",saldo:800,reservado:0,limTx:300,limDia:600,activa:false}];
+  s.key=genKey();return s}
+let S=(()=>{try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.cuentas&&d.pagos)return Object.assign(vacio(),d)}catch(e){}return seed()})();
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+const commit=()=>{save();render()};
+const C=id=>S.cuentas.find(c=>c.id===id),P=id=>S.pagos.find(p=>p.id===id);
+const aud=(pid,ev,det)=>{S.aud.unshift({t:Date.now(),pid,ev,det});S.aud.length=Math.min(S.aud.length,300)};
+const hoy=t=>new Date(t).toDateString()===new Date().toDateString();
+const dispon=c=>c.saldo-c.reservado;
+const acumHoy=c=>S.pagos.filter(p=>p.cuenta===c.id&&hoy(p.creado)&&(p.estado==="APROBADO"||p.estado==="EN_PROCESO")).reduce((a,p)=>a+p.monto,0);
+const etq={APROBADO:"aprobado",RECHAZADO:"rechazado",EN_PROCESO:"en proceso"};
+
+function confirmar(p){const c=C(p.cuenta);if(c){c.saldo-=p.monto;c.reservado-=p.monto}p.estado="APROBADO";p.motivo="";p.resuelto=Date.now();aud(p.id,"PAGO_APROBADO",money(p.monto)+" debitados; reserva liberada")}
+function liberar(p,m){const c=C(p.cuenta);if(c)c.reservado-=p.monto;p.estado="RECHAZADO";p.motivo=m;p.resuelto=Date.now();aud(p.id,"PAGO_RECHAZADO",m+"; reserva liberada")}
+function resolver(p){ // consulta el estado en el banco por referencia
+  p.consultas++;const b=S.banco.find(x=>x.ref==="REF-"+p.id);
+  aud(p.id,"CONSULTA_BANCO","consulta "+p.consultas+": "+(b?b.estado:"sin registro"));
+  if(b&&b.estado==="APROBADO"){confirmar(p);return true}
+  if(b){liberar(p,"BANCO_RECHAZO");return true}
+  if(p.consultas>=2){liberar(p,"BANCO_SIN_CONFIRMACION");return true}
+  return false}
+
+function fin(http,body,pasos,lat,replay){
+  if(body.pagoId&&!replay){pasos.push({n:"Notificar al cliente",ok:null,det:"Se envía en segundo plano",bg:1},{n:"Conciliar con el banco",ok:null,det:"Se compara después, en segundo plano",bg:1})}
+  S.lat.push(lat);if(S.lat.length>500)S.lat.shift();
+  S.ultimo={http,body,pasos,lat,replay:!!replay};commit()}
+
+function enviar(){
+  const cid=$("cuenta").value,c=C(cid),monto=num($("monto").value),conc=$("concepto").value.trim(),key=$("key").value.trim();
+  if(!c)return alert("Crea una cuenta primero.");
+  if(!(monto>0))return alert("Ingresa un monto mayor a cero.");
+  if(!key)return alert("La clave de idempotencia es obligatoria.");
+  S.modo=$("modo").value;S.idem=$("idem").checked;S.key=key;
+  const hash=cid+"|"+monto+"|"+conc,ik=cid+"|"+key,pasos=[];let lat=Math.round(30+Math.random()*60);
+  const paso=(n,ok,det)=>pasos.push({n,ok,det});
+  aud(null,"INTENTO_RECIBIDO","clave "+key+" · "+mask(c.numero)+" · "+money(monto));
+  paso("Validar solicitud",true,"Formato y monto correctos");
+  const prev=S.idem&&S.im[ik];
+  if(prev){const q=P(prev.pid);
+    if(prev.hash!==hash){S.conf++;aud(q.id,"CONFLICTO_IDEMPOTENCIA","la clave "+key+" llegó con otros datos");
+      paso("Idempotencia",false,"Esta clave ya se usó con otros datos");return fin(422,{error:"IDEMPOTENCY_KEY_REUSED"},pasos,12)}
+    S.reint++;aud(q.id,"REINTENTO_DEDUPLICADO","se devolvió la respuesta guardada; no se cobró de nuevo");
+    paso("Idempotencia",true,"Clave conocida: se devuelve la respuesta guardada, sin cobrar otra vez");
+    return fin(q.estado==="EN_PROCESO"?202:200,{pagoId:q.id,estado:q.estado,motivo:q.motivo||undefined,replay:true},pasos,12,true)}
+  paso("Idempotencia",true,S.idem?"Clave nueva: se registra junto con los datos":"DESACTIVADA: un reintento se cobraría otra vez");
+  const p={id:S.seq++,key,cuenta:cid,tit:c.titular+" "+mask(c.numero),monto,concepto:conc,estado:"",motivo:"",creado:Date.now(),consultas:0,conciliado:null,tecnico:false};
+  S.pagos.push(p);if(S.idem)S.im[ik]={hash,pid:p.id};
+  const rechazo=(m,det)=>{p.estado="RECHAZADO";p.motivo=m;p.resuelto=Date.now();paso("Cuenta y límites",false,det);aud(p.id,"PAGO_RECHAZADO",m+" · "+det);S.cola.push({tipo:"NOTIFICAR",pid:p.id});return fin(200,{pagoId:p.id,estado:"RECHAZADO",motivo:m},pasos,lat)};
+  if(!c.activa)return rechazo("CUENTA_INACTIVA","La cuenta está bloqueada");
+  if(dispon(c)<monto)return rechazo("SALDO_INSUFICIENTE","Disponible: "+money(dispon(c)));
+  if(monto>c.limTx)return rechazo("LIMITE_POR_PAGO","El máximo por pago es "+money(c.limTx));
+  if(acumHoy(c)+monto>c.limDia)return rechazo("LIMITE_DIARIO","Hoy van "+money(acumHoy(c))+" de "+money(c.limDia));
+  paso("Cuenta y límites",true,"Cuenta activa, saldo y límites correctos");
+  c.reservado+=monto;lat+=15;paso("Reservar monto",true,money(monto)+" reservados en la cuenta");aud(p.id,"RESERVA",money(monto)+" en "+mask(c.numero));
+  const ref="REF-"+p.id;
+  if(S.modo==="APROBAR"||S.modo==="RECHAZAR"){
+    const ok=S.modo==="APROBAR";lat+=Math.round(250+Math.random()*250);
+    S.banco.push({ref,monto,estado:ok?"APROBADO":"RECHAZADO"});
+    paso("Banco externo",ok,ok?"El banco aprobó el pago":"El banco rechazó el pago");
+    if(ok)confirmar(p);else liberar(p,"BANCO_RECHAZO");
+    S.cola.push({tipo:"NOTIFICAR",pid:p.id});paso("Responder al cliente",true,"Respuesta con el resultado final");
+    return fin(200,{pagoId:p.id,estado:p.estado,motivo:p.motivo||undefined},pasos,lat)}
+  if(S.modo==="TARDE")S.banco.push({ref,monto,estado:"APROBADO"});
+  lat+=3000;p.estado="EN_PROCESO";p.motivo="TIMEOUT_BANCO";p.tecnico=true;
+  paso("Banco externo",false,"Sin respuesta en 3 s: no se sabe si cobró");aud(p.id,"BANCO_TIMEOUT","sin respuesta en 3 s; el pago queda EN_PROCESO");
+  S.cola.push({tipo:"CONSULTAR_BANCO",pid:p.id});
+  paso("Responder al cliente",true,"«En proceso»: la reserva se mantiene hasta confirmar con el banco");
+  fin(202,{pagoId:p.id,estado:"EN_PROCESO"},pasos,lat)}
+
+function procesar(){
+  const q=S.cola,again=[];S.cola=[];if(!q.length)return alert("No hay tareas pendientes.");
+  for(let i=0;i<q.length;i++){const t=q[i],p=P(t.pid);if(!p)continue;
+    if(t.tipo==="NOTIFICAR"){p.notif=true;aud(p.id,"NOTIFICACION","SMS: pago de "+money(p.monto)+" "+etq[p.estado])}
+    else if(p.estado==="EN_PROCESO"){if(resolver(p))q.push({tipo:"NOTIFICAR",pid:p.id});else again.push(t)}}
+  S.cola=again;commit()}
+
+function conciliar(){
+  const rep=[];
+  S.pagos.forEach(p=>{const b=S.banco.find(x=>x.ref==="REF-"+p.id),bi=b?b.estado:"SIN REGISTRO";let r;
+    if(p.estado==="EN_PROCESO"){
+      if(b){resolver(p);S.cola.push({tipo:"NOTIFICAR",pid:p.id});r="Diferencia corregida: el banco tenía "+bi+" y aquí seguía en proceso"}
+      else r="Pendiente: el banco aún no tiene registro"}
+    else if(p.estado==="APROBADO")r=bi==="APROBADO"?"OK":"Diferencia: aprobado aquí, "+bi+" en el banco";
+    else r=bi==="APROBADO"?"Diferencia: rechazado aquí, aprobado en el banco":"OK";
+    if(r==="OK"&&!p.conciliado)p.conciliado=Date.now();
+    rep.push({id:p.id,monto:p.monto,a:p.estado,b:bi,r})});
+  S.banco.forEach(b=>{if(!S.pagos.some(p=>"REF-"+p.id===b.ref))rep.push({id:b.ref,monto:b.monto,a:"SIN REGISTRO",b:b.estado,r:"Diferencia: el banco tiene un cobro sin registro interno"})});
+  S.concil=rep;aud(null,"CONCILIACION",rep.length+" operaciones, "+rep.filter(x=>x.r==="OK").length+" sin diferencias");commit()}
+
+const fd=e=>{e.preventDefault();return Object.fromEntries(new FormData(e.target))};
+function addCuenta(e){const f=fd(e),n=f.titular.trim(),s=num(f.saldo),a=num(f.limTx),d=num(f.limDia);
+  if(!n||!(s>=0)||!(a>=0)||!(d>=0))return;
+  if(S.cuentas.some(c=>c.numero===f.numero))return alert("Ese número de cuenta ya existe.");
+  S.cuentas.push({id:"c"+Date.now().toString(36),titular:n,numero:f.numero,saldo:s,reservado:0,limTx:a,limDia:d,activa:true});
+  aud(null,"CUENTA_CREADA",n+" "+mask(f.numero));e.target.reset();commit()}
+function setC(id,k,v){const c=C(id);if(k==="activa")c.activa=v;else{v=num(v);if(!(v>=0))return;c[k]=v}aud(null,"CUENTA_EDITADA",c.titular+": "+k+" = "+v);commit()}
+function quitarC(id){if(confirm("¿Quitar la cuenta? Sus pagos quedan en el historial.")){S.cuentas=S.cuentas.filter(c=>c.id!==id);commit()}}
+function exportar(){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:"application/json"}));a.download="pagos-copia.json";a.click()}
+function importar(i){const f=i.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.cuentas||!d.pagos)throw 0;S=Object.assign(vacio(),d);ctl();commit()}catch(e){alert("El archivo no es una copia válida.")}i.value=""};r.readAsText(f)}
+
+const pc=(a,p)=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.ceil(p*s.length)-1)]};
+function met(){const l=S.lat,g={};
+  S.pagos.forEach(p=>{if(p.estado==="APROBADO"||p.estado==="EN_PROCESO"){const k=p.cuenta+"|"+p.key;g[k]=(g[k]||0)+1}});
+  const tec=S.pagos.filter(p=>p.tecnico).length,cc=S.pagos.filter(p=>p.conciliado);
+  return{avg:l.length?l.reduce((a,b)=>a+b,0)/l.length:0,p95:pc(l,.95),dup:Object.values(g).reduce((a,n)=>a+(n>1?n-1:0),0),tec,tot:S.pagos.length,
+    tc:cc.length?ft(cc.reduce((a,p)=>a+(p.conciliado-p.creado),0)/cc.length):"–"}}
+const tag=s=>`<span class="tag ${s}">${s.replace("_"," ")}</span>`;
+const none=(n,t)=>`<tr><td colspan="${n}" class="empty">${t}</td></tr>`;
+
+function render(){
+  const m=met();
+  $("k1").textContent=S.lat.length?Math.round(m.avg)+" ms":"–";$("k1s").textContent="Latencia de autorización (media)"+(S.lat.length?" · p95 "+Math.round(m.p95)+" ms":"");
+  $("k2").textContent=m.dup;$("k3").textContent=m.tot?Math.round(m.tec/m.tot*100)+"%":"–";$("k4").textContent=m.tc;
+  const v=$("cuenta").value;
+  $("cuenta").innerHTML=S.cuentas.map(c=>`<option value="${c.id}">${esc(c.titular)} ${mask(c.numero)} (disp. ${money(dispon(c))})</option>`).join("");
+  if(v&&C(v))$("cuenta").value=v;
+  const u=S.ultimo;$("resp").hidden=!u;
+  if(u){$("httpl").textContent="HTTP "+({200:"200 OK",202:"202 Accepted",422:"422 Unprocessable Entity"}[u.http])+(u.replay?" · Idempotent-Replayed: true":"")+" · latencia simulada "+u.lat+" ms";
+    $("json").textContent=JSON.stringify(u.body,null,2);
+    $("steps").innerHTML=u.pasos.map(s=>`<li class="${s.bg?"bg":""}"><span>${s.ok===true?"✔":s.ok===false?"✖":"⏳"}</span><b>${esc(s.n)}</b><span>${esc(s.det)}</span></li>`).join("")}
+  $("pagos").innerHTML=S.pagos.length?[...S.pagos].reverse().map(p=>`<tr><td>${p.id}</td><td>${esc(p.tit)}</td><td>${money(p.monto)}</td><td>${tag(p.estado)}</td><td>${esc(p.motivo||"–")}</td><td>${esc(p.key)}</td><td>${p.notif?"Sí":"No"}</td><td>${p.conciliado?"Sí":"No"}</td></tr>`).join(""):none(8,"Todavía no hay pagos. Envía el primero.");
+  $("cola").innerHTML=S.cola.length?S.cola.map(t=>`<li>${t.tipo==="NOTIFICAR"?"Notificar al cliente":"Consultar estado en el banco"} — pago n.º ${t.pid}</li>`).join(""):'<li>No hay tareas pendientes.</li>';
+  $("banco").innerHTML=S.banco.length?S.banco.map(b=>`<tr><td>${esc(b.ref)}</td><td>${money(b.monto)}</td><td>${b.estado}</td></tr>`).join(""):none(3,"El banco todavía no recibió operaciones.");
+  $("conc").innerHTML=S.concil.length?S.concil.map(r=>`<tr><td>${esc(r.id)}</td><td>${money(r.monto)}</td><td>${esc(r.a)}</td><td>${esc(r.b)}</td><td>${esc(r.r)}</td></tr>`).join(""):none(5,"Pulsa «Conciliar con el banco» para generar el informe.");
+  $("cuentas").innerHTML=S.cuentas.length?S.cuentas.map(c=>`<tr><td>${esc(c.titular)}</td><td>${mask(c.numero)}</td>
+   <td><input type="number" min="0" step="any" value="${c.saldo}" onchange="setC('${c.id}','saldo',this.value)" aria-label="Saldo"></td><td>${money(c.reservado)}</td>
+   <td><input type="number" min="0" step="any" value="${c.limTx}" onchange="setC('${c.id}','limTx',this.value)" aria-label="Límite por pago"></td>
+   <td><input type="number" min="0" step="any" value="${c.limDia}" onchange="setC('${c.id}','limDia',this.value)" aria-label="Límite diario"></td>
+   <td><input type="checkbox" ${c.activa?"checked":""} onchange="setC('${c.id}','activa',this.checked)" aria-label="Cuenta activa"></td>
+   <td><button class="sec" onclick="quitarC('${c.id}')">Quitar</button></td></tr>`).join(""):none(8,"Sin cuentas.");
+  $("mets").innerHTML=[[S.lat.length?Math.round(m.avg)+" ms (p95 "+Math.round(m.p95)+" ms)":"–","Latencia de autorización"],[m.dup+" cobros dobles · "+S.reint+" reintentos evitados","Pagos duplicados"],
+    [m.tot?Math.round(m.tec/m.tot*100)+"% ("+m.tec+" de "+m.tot+")":"–","Tasa de errores técnicos"],[m.tc,"Tiempo medio de conciliación"]].map(k=>`<div class="kpi"><b style="font-size:1.1rem">${k[0]}</b><span>${k[1]}</span></div>`).join("");
+  $("aud").innerHTML=S.aud.length?S.aud.map(a=>`<li><small>${fe(a.t)}${a.pid?" · pago n.º "+a.pid:""}</small><b>${esc(a.ev)}</b> — ${esc(a.det)}</li>`).join(""):"<li>Sin registros todavía.</li>"}
+function ctl(){$("modo").value=S.modo;$("idem").checked=S.idem;if(!S.key)S.key=genKey();$("key").value=S.key}
+function tab(t){["pag","seg","cue","aud"].forEach(x=>{$("s-"+x).hidden=x!==t;const b=$("t-"+x);b.setAttribute("aria-selected",x===t);b.className=x===t?"":"sec"})}
+ctl();tab("pag");commit();
+</script>
+</body>
+</html>
